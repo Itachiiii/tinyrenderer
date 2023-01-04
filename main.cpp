@@ -1,4 +1,5 @@
 #include "tgaimage.h"
+using namespace std;
 
 const TGAColor white = TGAColor(255, 255, 255, 255);
 const TGAColor red   = TGAColor(255, 0,   0,   255);
@@ -25,14 +26,21 @@ void line(int x0, int y0, int x1, int y1, TGAImage &image, TGAColor color) {
         std::swap(a0, a1);
         std::swap(b0, b1);
     }
+    float derror = std::abs((b1 - b0) / (float)(a1 - a0));
+    float error = 0;
+    int b = b0;
     for(int a = a0; a <= a1; a++)
     {
-        float t = (a - a0) / (float)(a1 - a0);
-        int b = t * (b1 - b0) + b0;
         if(steep){
             image.set(b, a, color);
         }else{
             image.set(a, b, color);
+        }
+        error += derror;
+        if(error > 0.5)
+        {
+            b += (b1 > b0 ? 1 : -1);
+            error -= 1.0f;
         }
     }
 }
