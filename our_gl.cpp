@@ -43,7 +43,7 @@ void triangle(const vec4 clip_verts[3], IShader &shader, TGAImage &image, std::v
 #pragma omp parallel for
     for (int x=(int)bboxmin.x; x<=(int)bboxmax.x; x++) {
         for (int y=(int)bboxmin.y; y<=(int)bboxmax.y; y++) {
-            vec3 bc_screen = barycentric(pts2, {x, y});
+            vec3 bc_screen = barycentric(pts2, {(double)x, (double)y});
             vec3 bc_clip   = {bc_screen.x/pts[0][3], bc_screen.y/pts[1][3], bc_screen.z/pts[2][3]};
             bc_clip = bc_clip/(bc_clip.x+bc_clip.y+bc_clip.z); // check https://github.com/ssloy/tinyrenderer/wiki/Technical-difficulties-linear-interpolation-with-perspective-deformations
             double frag_depth = vec3{clip_verts[0][2], clip_verts[1][2], clip_verts[2][2]}*bc_clip;
