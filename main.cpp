@@ -1,8 +1,13 @@
 #include "tgaimage.h"
+#include "model.h"
+#include <iostream>
 using namespace std;
 
 const TGAColor white = TGAColor(255, 255, 255, 255);
 const TGAColor red   = TGAColor(255, 0,   0,   255);
+const int width = 800;
+const int height = 800;
+Model* model = nullptr;
 
 void line(int x0, int y0, int x1, int y1, TGAImage &image, TGAColor color) {
     bool steep = false;
@@ -48,12 +53,33 @@ void line(int x0, int y0, int x1, int y1, TGAImage &image, TGAColor color) {
 }
 
 int main(int argc, char** argv) {
-    TGAImage image(100, 100, TGAImage::RGB);
-    line(50, 80, 90, 20, image, white); 
-    line(13, 20, 80, 40, image, white); 
-    line(20, 13, 40, 80, image, red); 
-    line(80, 40, 13, 20, image, red);
+    TGAImage image(width, height, TGAImage::RGB);
+    if(2 == argc)
+    {
+        model = new Model(argv[1]);
+    }
+    else
+    {
+        model = new Model("obj/african_head.obj");
+    }
+    int fs = model->nfaces();
+    for(int f = 0; f < fs; f++)
+    {
+        auto vs = model->face(f);
+        for(int l = 0; l < 3; l++)
+        {
+            Vec3f v0 = model->vert(vs[l]);
+            Vec3f v1 = model->vert(vs[(l+1)%3]);
+            v0.x = (v0.x + 1) * width / 2;
+            v0.y = (v0.y + 1) * height / 2;
+            v1.x = (v1.x + 1) * width / 2;
+            v1.y = (v1.y + 1) * height / 2;
+            line(v0.x, v0.y, v1.x, v1.y, image, white);
+        }
+    }
+
     image.flip_vertically(); // i want to have the origin at the left bottom corner of the image
     image.write_tga_file("output.tga");
+    delete model;
     return 0;
 }
