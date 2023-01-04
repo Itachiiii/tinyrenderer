@@ -26,8 +26,10 @@ void line(int x0, int y0, int x1, int y1, TGAImage &image, TGAColor color) {
         std::swap(a0, a1);
         std::swap(b0, b1);
     }
-    float derror = std::abs((b1 - b0) / (float)(a1 - a0));
-    float error = 0;
+    int da = a1 - a0;
+    int db = b1 - b0;
+    int derror2 = 2 * abs(db);
+    int error2 = 0;
     int b = b0;
     for(int a = a0; a <= a1; a++)
     {
@@ -36,17 +38,18 @@ void line(int x0, int y0, int x1, int y1, TGAImage &image, TGAColor color) {
         }else{
             image.set(a, b, color);
         }
-        error += derror;
-        if(error > 0.5)
+        error2 += derror2;
+        if(error2 > da)
         {
             b += (b1 > b0 ? 1 : -1);
-            error -= 1.0f;
+            error2 -= 2 * da;
         }
     }
 }
 
 int main(int argc, char** argv) {
     TGAImage image(100, 100, TGAImage::RGB);
+    line(50, 80, 90, 20, image, white); 
     line(13, 20, 80, 40, image, white); 
     line(20, 13, 40, 80, image, red); 
     line(80, 40, 13, 20, image, red);
