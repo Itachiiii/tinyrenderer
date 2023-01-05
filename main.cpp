@@ -122,17 +122,16 @@ int main(int argc, char** argv) {
     for(int i = 0; i < model->nfaces(); i++)
     {
         vector<int> f = model->face(i);
-        Vec3f a = model->vert(f[0]);
-        Vec3f b = model->vert(f[1]);
-        Vec3f c = model->vert(f[2]);
-
-        Vec2i p0((a.x + 1.) * width/2., (a.y + 1.) * height/2.);
-        Vec2i p1((b.x + 1.) * width/2., (b.y + 1.) * height/2.);
-        Vec2i p2((c.x + 1.) * width/2., (c.y + 1.) * height/2.);
-
-        Vec2i pts[3] = {p0, p1, p2};
-        // triangle_bary(pts, image, TGAColor(rand()%255, rand()%255, rand()%255, 255));
-        triangle(p0, p1, p2, image, TGAColor(rand()%255, rand()%255, rand()%255, 255));
+        Vec3f world_coord[3];
+        Vec2i screen_coord[3];
+        for(int i = 0; i < 3; i++)
+        {
+            world_coord[i] = model->vert(f[i]);
+            screen_coord[i] = Vec2i((world_coord[i].x + 1)*width/2., (world_coord[i].y + 1)*height/2.);
+        }
+        triangle_bary(screen_coord, image, TGAColor(rand()%255, rand()%255, rand()%255, 255));
+        // triangle(screen_coord[0], screen_coord[1], screen_coord[2], 
+        //     image, TGAColor(rand()%255, rand()%255, rand()%255, 255));
     }
 
     image.flip_vertically(); // i want to have the origin at the left bottom corner of the image
