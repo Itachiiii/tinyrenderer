@@ -6,8 +6,8 @@ using namespace std;
 const TGAColor white = TGAColor(255, 255, 255, 255);
 const TGAColor red   = TGAColor(255, 0,   0,   255);
 const TGAColor green = TGAColor(0, 255,   0,   255);
-const int width = 1000;
-const int height = 1000;
+const int width = 800;
+const int height = 800;
 Model* model = nullptr;
 
 void line(int x0, int y0, int x1, int y1, TGAImage &image, TGAColor color) {
@@ -117,6 +117,7 @@ void triangle_bary(Vec2i* pts, TGAImage &image, TGAColor color)
 
 int main(int argc, char** argv) {
     TGAImage image(width, height, TGAImage::RGB);
+    Vec3f light_dir(0, 0, -1);
     
     model = new Model("obj/african_head.obj");
     for(int i = 0; i < model->nfaces(); i++)
@@ -124,18 +125,30 @@ int main(int argc, char** argv) {
         vector<int> f = model->face(i);
         Vec3f world_coord[3];
         Vec2i screen_coord[3];
-        for(int i = 0; i < 3; i++)
+        for(int j = 0; j < 3; j++)
         {
-            world_coord[i] = model->vert(f[i]);
-            screen_coord[i] = Vec2i((world_coord[i].x + 1)*width/2., (world_coord[i].y + 1)*height/2.);
+            world_coord[j] = model->vert(f[j]);
+            screen_coord[j] = Vec2i((world_coord[j].x + 1)*width/2., (world_coord[j].y + 1)*height/2.);
         }
-        triangle_bary(screen_coord, image, TGAColor(rand()%255, rand()%255, rand()%255, 255));
+        Vec3f normal = (world_coord[2] - world_coord[0]) ^ (world_coord[1] - world_coord[0]);
+        normal.normalize();
+        float intensity = normal * light_dir;
+        if(intensity > 0)
+        {
+            // triangle_bary(screen_coord, image, TGAColor(intensity*255, intensity*255, intensity*255, 255));
+            triangle(screen_coord[0], screen_coord[1], screen_coord[2], 
+                image, TGAColor(intensity*255, intensity*255, intensity*255, 255));
+        }
+
+        //NOTE: 下面这种写法是错误的，如果先画正面，后画背面，就会出现黑块，当然上面的写法也不完全正确罢了
+        // float intensity = max(0.f, normal * light_dir);
+        // triangle_bary(screen_coord, image, TGAColor(intensity*255, intensity*255, intensity*255, 255));
         // triangle(screen_coord[0], screen_coord[1], screen_coord[2], 
-        //     image, TGAColor(rand()%255, rand()%255, rand()%255, 255));
+        //     image, TGAColor(intensity*255, intensity*255, intensity*255, 255));
     }
 
     image.flip_vertically(); // i want to have the origin at the left bottom corner of the image
-    image.write_tga_file("output1.tga");
+    image.write_tga_file("output.tga");
     delete model;
     return 0;
 }
