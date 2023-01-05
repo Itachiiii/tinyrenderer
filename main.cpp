@@ -80,6 +80,41 @@ void triangle(Vec2i t0, Vec2i t1, Vec2i t2, TGAImage &image, TGAColor color){
     }
 }
 
+Vec3f barycentric(Vec2i pts[3], Vec2i p)
+{
+    Vec2i a(p - pts[0]);
+    Vec2i b(pts[1] - pts[0]);
+    Vec2i c(pts[2] - pts[0]);
+    int x1 = a.x, y1 = a.y;
+    int x2 = b.x, y2 = b.y;
+    int x3 = c.x, y3 = c.y;
+    float u = x3 * y1 - x1 * y3 / (y2 * x3 - x2 * y3);
+    float v = x2 * y1 - x1 * y2 / (x2 * y3 - x3 * y2);
+    return Vec3f(1 - u - v, u, v);
+}
+
+void triangle_bary(Vec2i pts[3], TGAImage &image, TGAColor color)
+{
+    Vec2i bboxmin(image.get_width() - 1, image.get_height() - 1);
+    Vec2i bboxmax(0, 0);
+    for(int i = 0; i < 3; i++)
+    {
+        bboxmin.x = max(0, min(bboxmin.x, pts[i].x));
+        bboxmin.y = max(0, min(bboxmin.y, pts[i].y));
+        bboxmax.x = min(image.get_width() - 1,  max(bboxmax.x, pts[i].x));
+        bboxmax.y = min(image.get_height() - 1, max(bboxmax.y, pts[i].y));
+    }
+    for(int x = bboxmin.x; x <= bboxmax.x; x++)
+    {
+        for(int y = bboxmin.y; y <= bboxmax.y; y++)
+        {
+            Vec3f bc = barycentric(pts, Vec2i(x, y));
+            if(bc.x <= 0 || bc.y <= 0 || bc.z <= 0)continue;
+            image.set(x, y, color);
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     TGAImage image(width, height, TGAImage::RGB);
     
