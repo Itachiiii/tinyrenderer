@@ -61,18 +61,18 @@ void triangle(Vec2i t0, Vec2i t1, Vec2i t2, TGAImage &image, TGAColor color){
     int tot_height = t2.y - t0.y, seg_height, height;
     bool upper;
     float alpha, beta;
-    Vec2i va, vb, a, b, ori;
+    Vec2f a, b, va, vb, ori;
     for(int y = t0.y; y < t2.y; y++)
     {
         upper = (y > t1.y || t1.y == t0.y);
-        seg_height = upper ? t2.y - t1.y + 1 : t1.y - t0.y + 1;
+        seg_height = upper ? t2.y - t1.y : t1.y - t0.y;
         height = upper ? t2.y - y : y - t0.y;
-        va = upper ? t1 - t2 : t1 - t0;
-        vb = upper ? t0 - t2 : t2 - t0;
-        ori = upper ? t2 : t0;
+        va = upper ? Vec2f{t1.x-t2.x, t1.y-t2.y} : Vec2f{t1.x-t0.x, t1.y-t0.y};
+        vb = upper ? Vec2f{t0.x-t2.x, t0.y-t2.y} : Vec2f{t2.x-t0.x, t2.y-t0.y};
+        ori = upper ? Vec2f{t2.x, t2.y} : Vec2f{t0.x, t0.y};
         alpha = (float)height / seg_height;
         beta = (float)height / tot_height;
-        a = alpha * va + ori;
+        a = alpha * va + ori; //cause for flaot !
         b = beta * vb + ori;
         if(a.x > b.x)swap(a, b);
         for(int x = a.x; x <= b.x; x++)
@@ -80,36 +80,36 @@ void triangle(Vec2i t0, Vec2i t1, Vec2i t2, TGAImage &image, TGAColor color){
     }
 }
 
-Vec3f barycentric(Vec2i* pts, Vec2i p)
+Vec3f barycentric(Vec2f* pts, Vec2f p)
 {
-    Vec2i a(p - pts[0]);
-    Vec2i b(pts[1] - pts[0]);
-    Vec2i c(pts[2] - pts[0]);
+    Vec2f a((p - pts[0]).x, (p - pts[0]).y);
+    Vec2f b((pts[1] - pts[0]).x,(pts[1] - pts[0]).y);
+    Vec2f c((pts[2] - pts[0]).x,(pts[2] - pts[0]).y);
     float x1 = a.x, y1 = a.y;
     float x2 = b.x, y2 = b.y;
     float x3 = c.x, y3 = c.y;
     float u = (x3 * y1 - x1 * y3) / (y2 * x3 - x2 * y3);
     float v = (x2 * y1 - x1 * y2) / (x2 * y3 - x3 * y2);
-    return Vec3f(1 - u - v, u, v);
+    return Vec3f(1.f - u - v, u, v);
 }
 
-void triangle_bary(Vec2i* pts, TGAImage &image, TGAColor color)
+void triangle_bary(Vec2f* pts, TGAImage &image, TGAColor color)
 {
     Vec2i bboxmin(image.get_width() - 1, image.get_height() - 1);
     Vec2i bboxmax(0, 0);
     for(int i = 0; i < 3; i++)
     {
-        bboxmin.x = max(0, min(bboxmin.x, pts[i].x));
-        bboxmin.y = max(0, min(bboxmin.y, pts[i].y));
-        bboxmax.x = min(image.get_width() - 1,  max(bboxmax.x, pts[i].x));
-        bboxmax.y = min(image.get_height() - 1, max(bboxmax.y, pts[i].y));
+        bboxmin.x = max(0, min(bboxmin.x, (int)pts[i].x));
+        bboxmin.y = max(0, min(bboxmin.y, (int)pts[i].y));
+        bboxmax.x = min(image.get_width()  - 1,  max(bboxmax.x, (int)pts[i].x));
+        bboxmax.y = min(image.get_height() - 1,  max(bboxmax.y, (int)pts[i].y));
     }
     for(int x = bboxmin.x; x <= bboxmax.x; x++)
     {
         for(int y = bboxmin.y; y <= bboxmax.y; y++)
         {
-            Vec3f bc = barycentric(pts, Vec2i(x, y));
-            if(bc.x <= 0 || bc.y <= 0 || bc.z <= 0)continue;
+            Vec3f bc = barycentric(pts, Vec2f(x+0.5f, y+0.5f));
+            if(bc.x < 0 || bc.y < 0 || bc.z < 0)continue;
             image.set(x, y, color);
         }
     }
@@ -124,27 +124,26 @@ int main(int argc, char** argv) {
     {
         vector<int> f = model->face(i);
         Vec3f world_coord[3];
-        Vec2i screen_coord[3];
+        Vec2f screen_coord[3];
         for(int j = 0; j < 3; j++)
         {
             world_coord[j] = model->vert(f[j]);
-            screen_coord[j] = Vec2i((world_coord[j].x + 1)*width/2., (world_coord[j].y + 1)*height/2.);
+            screen_coord[j] = Vec2f((world_coord[j].x + 1)*width/2., (world_coord[j].y + 1)*height/2.);
         }
         Vec3f normal = (world_coord[2] - world_coord[0]) ^ (world_coord[1] - world_coord[0]);
         normal.normalize();
         float intensity = normal * light_dir;
         if(intensity > 0)
         {
+            // method 1
             // triangle_bary(screen_coord, image, TGAColor(intensity*255, intensity*255, intensity*255, 255));
-            triangle(screen_coord[0], screen_coord[1], screen_coord[2], 
-                image, TGAColor(intensity*255, intensity*255, intensity*255, 255));
-        }
 
-        //NOTE: 下面这种写法是错误的，如果先画正面，后画背面，就会出现黑块，当然上面的写法也不完全正确罢了
-        // float intensity = max(0.f, normal * light_dir);
-        // triangle_bary(screen_coord, image, TGAColor(intensity*255, intensity*255, intensity*255, 255));
-        // triangle(screen_coord[0], screen_coord[1], screen_coord[2], 
-        //     image, TGAColor(intensity*255, intensity*255, intensity*255, 255));
+            // method 2
+            triangle(Vec2i(screen_coord[0].x, screen_coord[0].y), 
+                    Vec2i(screen_coord[1].x, screen_coord[1].y),
+                    Vec2i(screen_coord[2].x, screen_coord[2].y),
+                    image, TGAColor(intensity*255, intensity*255, intensity*255, 255));
+        }
     }
 
     image.flip_vertically(); // i want to have the origin at the left bottom corner of the image
