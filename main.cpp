@@ -6,8 +6,8 @@ using namespace std;
 const TGAColor white = TGAColor(255, 255, 255, 255);
 const TGAColor red   = TGAColor(255, 0,   0,   255);
 const TGAColor green = TGAColor(0, 255,   0,   255);
-const int width = 200;
-const int height = 200;
+const int width = 1000;
+const int height = 1000;
 Model* model = nullptr;
 
 void line(int x0, int y0, int x1, int y1, TGAImage &image, TGAColor color) {
@@ -80,20 +80,20 @@ void triangle(Vec2i t0, Vec2i t1, Vec2i t2, TGAImage &image, TGAColor color){
     }
 }
 
-Vec3f barycentric(Vec2i pts[3], Vec2i p)
+Vec3f barycentric(Vec2i* pts, Vec2i p)
 {
     Vec2i a(p - pts[0]);
     Vec2i b(pts[1] - pts[0]);
     Vec2i c(pts[2] - pts[0]);
-    int x1 = a.x, y1 = a.y;
-    int x2 = b.x, y2 = b.y;
-    int x3 = c.x, y3 = c.y;
-    float u = x3 * y1 - x1 * y3 / (y2 * x3 - x2 * y3);
-    float v = x2 * y1 - x1 * y2 / (x2 * y3 - x3 * y2);
+    float x1 = a.x, y1 = a.y;
+    float x2 = b.x, y2 = b.y;
+    float x3 = c.x, y3 = c.y;
+    float u = (x3 * y1 - x1 * y3) / (y2 * x3 - x2 * y3);
+    float v = (x2 * y1 - x1 * y2) / (x2 * y3 - x3 * y2);
     return Vec3f(1 - u - v, u, v);
 }
 
-void triangle_bary(Vec2i pts[3], TGAImage &image, TGAColor color)
+void triangle_bary(Vec2i* pts, TGAImage &image, TGAColor color)
 {
     Vec2i bboxmin(image.get_width() - 1, image.get_height() - 1);
     Vec2i bboxmax(0, 0);
@@ -118,16 +118,25 @@ void triangle_bary(Vec2i pts[3], TGAImage &image, TGAColor color)
 int main(int argc, char** argv) {
     TGAImage image(width, height, TGAImage::RGB);
     
-    Vec2i t0[3] = {Vec2i(10, 70),   Vec2i(50, 160),  Vec2i(70, 80)};
-    Vec2i t1[3] = {Vec2i(180, 50),  Vec2i(150, 1),   Vec2i(70, 180)};
-    Vec2i t2[3] = {Vec2i(180, 150), Vec2i(120, 160), Vec2i(130, 180)};
+    model = new Model("obj/african_head.obj");
+    for(int i = 0; i < model->nfaces(); i++)
+    {
+        vector<int> f = model->face(i);
+        Vec3f a = model->vert(f[0]);
+        Vec3f b = model->vert(f[1]);
+        Vec3f c = model->vert(f[2]);
 
-    triangle(t0[0], t0[1], t0[2], image, red);
-    triangle(t1[0], t1[1], t1[2], image, white);
-    triangle(t2[0], t2[1], t2[2], image, green);
+        Vec2i p0((a.x + 1.) * width/2., (a.y + 1.) * height/2.);
+        Vec2i p1((b.x + 1.) * width/2., (b.y + 1.) * height/2.);
+        Vec2i p2((c.x + 1.) * width/2., (c.y + 1.) * height/2.);
+
+        Vec2i pts[3] = {p0, p1, p2};
+        // triangle_bary(pts, image, TGAColor(rand()%255, rand()%255, rand()%255, 255));
+        triangle(p0, p1, p2, image, TGAColor(rand()%255, rand()%255, rand()%255, 255));
+    }
 
     image.flip_vertically(); // i want to have the origin at the left bottom corner of the image
-    image.write_tga_file("output.tga");
+    image.write_tga_file("output1.tga");
     delete model;
     return 0;
 }
