@@ -54,9 +54,40 @@ void line(int x0, int y0, int x1, int y1, TGAImage &image, TGAColor color) {
 }
 
 void triangle(Vec2i t0, Vec2i t1, Vec2i t2, TGAImage &image, TGAColor color){
-    line(t0.x, t0.y, t1.x, t1.y, image, color);
-    line(t1.x, t1.y, t2.x, t2.y, image, color);
-    line(t2.x, t2.y, t0.x, t0.y, image, color);
+    if(t0.y > t1.y)swap(t0, t1);
+    if(t1.y > t2.y)swap(t1, t2);
+    if(t0.y > t1.y)swap(t0, t1);
+    int tot_height = t2.y - t0.y;
+    int seg_height = t1.y - t0.y + 1;
+    Vec2i a(t1 - t0);
+    Vec2i b(t2 - t0);
+    for(int y = t0.y; y <= t1.y; y++)
+    {
+        float alpha = (float)(y - t0.y) / tot_height;
+        float beta = (float)(y - t0.y) / seg_height;
+        Vec2i _t1 = a * beta + t0;
+        Vec2i _t2 = alpha * b + t0;
+        if(_t1.x > _t2.x)swap(_t2, _t1);
+        for(int x = _t1.x; x <= _t2.x; x++)
+        {
+            image.set(x, y, color);
+        }
+    }
+
+    seg_height = t2.y - t1.y + 1;
+    for(int y = t1.y + 1; y <= t2.y; y++)
+    {
+        int l = t2.y - y;
+        float alpha = (float)l / seg_height;
+        float beta = (float)l / tot_height;
+        Vec2i _t1 = t2 + alpha * (t1 - t2);
+        Vec2i _t0 = t2 + beta * (t0 - t2);
+        if(_t0.x > _t1.x)swap(_t0, _t1);
+        for(int x = _t0.x; x <= _t1.x; x++)
+        {
+            image.set(x, y, color);
+        }
+    }
 }
 
 int main(int argc, char** argv) {
