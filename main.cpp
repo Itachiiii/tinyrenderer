@@ -75,8 +75,8 @@ void triangle(Vec2i t0, Vec2i t1, Vec2i t2, TGAImage &image, TGAColor color){
         ori = upper ? Vec2f{t2.x, t2.y} : Vec2f{t0.x, t0.y};
         alpha = (float)height / seg_height;
         beta = (float)height / tot_height;
-        a = alpha * va + ori; //cause for flaot !
-        b = beta * vb + ori;
+        a = va * alpha + ori; //cause for flaot !
+        b = vb * beta + ori;
         if(a.x > b.x)swap(a, b);
         for(int x = a.x; x <= b.x; x++)
             image.set(x, y, color);
@@ -96,7 +96,7 @@ Vec3f barycentric(Vec3f* pts, Vec3f p)
     return Vec3f(1.f - u - v, u, v);
 }
 
-void triangle_bary(Vec3f* pts, float* zbuffer, TGAImage &image, TGAColor color)
+void triangle_bary(Vec3f* pts, float* zbuffer, TGAImage &image, Vec2i* uvs, float intensity)
 {
     Vec2i bboxmin(image.get_width() - 1, image.get_height() - 1);
     Vec2i bboxmax(0, 0);
@@ -115,6 +115,8 @@ void triangle_bary(Vec3f* pts, float* zbuffer, TGAImage &image, TGAColor color)
             if(bc.x < 0 || bc.y < 0 || bc.z < 0)continue;
             float z = 0;
             z = pts[0].z * bc.x + pts[1].z * bc.y + pts[2].z * bc.z;
+            Vec2i uv = uvs[0] * bc.x + uvs[1] * bc.y + uvs[2] * bc.z;
+            TGAColor color = model->diffuse(uv) * intensity;
             if(z > zbuffer[x + y * width]){
                 zbuffer[x + y * width] = z;
                 image.set(x, y, color);
@@ -141,15 +143,23 @@ int main(int argc, char** argv) {
             world_coord[j] = model->vert(f[j]);
             screen_coord[j] = Vec3f((world_coord[j].x + 1)*width/2., (world_coord[j].y + 1)*height/2., world_coord[j].z);
         }
-       
-        // method 1
-        triangle_bary(screen_coord, zbuffer, image, TGAColor(rand()%255, rand()%255, rand()%255, 255));
+        Vec3f normal = cross((world_coord[2] - world_coord[0]), (world_coord[1] - world_coord[0]));
+        normal.normalize();
+        float intensity = normal * light_dir;
+        Vec2i* uvs = new Vec2i[3];
+        for(int j = 0; j < 3; j++)
+            uvs[j] = model->uv(i,j);
+        if(intensity > 0)
+        {
+            // method 1
+            triangle_bary(screen_coord, zbuffer, image, uvs, intensity);
 
-        // method 2
-        // triangle(Vec2i(screen_coord[0].x, screen_coord[0].y), 
-        //         Vec2i(screen_coord[1].x, screen_coord[1].y),
-        //         Vec2i(screen_coord[2].x, screen_coord[2].y),
-        //         image, TGAColor(rand()%255, rand()%255, rand()%255, 255));
+            // method 2
+            // triangle(Vec2i(screen_coord[0].x, screen_coord[0].y), 
+            //         Vec2i(screen_coord[1].x, screen_coord[1].y),
+            //         Vec2i(screen_coord[2].x, screen_coord[2].y),
+            //         image, TGAColor(intensity*255, intensity*255, intensity*255, 255));
+        }
     }
 
     image.flip_vertically(); // i want to have the origin at the left bottom corner of the image
