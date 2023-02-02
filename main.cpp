@@ -13,73 +13,37 @@ const int width = 800;
 const int height = 800;
 Model* model = nullptr;
 
-void line(int x0, int y0, int x1, int y1, TGAImage &image, TGAColor color) {
-    bool steep = false;
-    int dx = abs(x0 - x1);
-    int dy = abs(y0 - y1);
-    int a0,a1,b0,b1;
-    if(dx < dy){
-        a0 = y0;
-        b0 = x0;
-        a1 = y1;
-        b1 = x1;
-        steep = true;
-    }
-    else{
-        a0 = x0;
-        b0 = y0;
-        a1 = x1;
-        b1 = y1;
-    }
-    if(a0 > a1){
-        std::swap(a0, a1);
-        std::swap(b0, b1);
-    }
-    int da = a1 - a0;
-    int db = b1 - b0;
-    int derror2 = 2 * abs(db);
-    int error2 = 0;
-    int b = b0;
-    for(int a = a0; a <= a1; a++)
-    {
-        if(steep){
-            image.set(b, a, color);
-        }else{
-            image.set(a, b, color);
-        }
-        error2 += derror2;
-        if(error2 > da)
-        {
-            b += (b1 > b0 ? 1 : -1);
-            error2 -= 2 * da;
-        }
-    }
+Vec3f light_dir(0,0,-1);
+Vec3f eye(0,0,3);
+
+const int depth = 255;
+Matrix Projection,ModelView,Viewport;
+
+void viewport(int x, int y, int w, int h) {
+    Viewport = Matrix::identity();
+    Viewport[0][3] = x+w/2.f;
+    Viewport[1][3] = y+h/2.f;
+    Viewport[2][3] = 255.f/2.f;
+    Viewport[0][0] = w/2.f;
+    Viewport[1][1] = h/2.f;
+    Viewport[2][2] = 255.f/2.f;
 }
 
-void triangle(Vec2i t0, Vec2i t1, Vec2i t2, TGAImage &image, TGAColor color){
-    if(t0.y == t1.y && t1.y == t2.y) return;
-    if(t0.y > t1.y)swap(t0, t1);
-    if(t1.y > t2.y)swap(t1, t2);
-    if(t0.y > t1.y)swap(t0, t1);
-    int tot_height = t2.y - t0.y, seg_height, height;
-    bool upper;
-    float alpha, beta;
-    Vec2f a, b, va, vb, ori;
-    for(int y = t0.y; y < t2.y; y++)
-    {
-        upper = (y > t1.y || t1.y == t0.y);
-        seg_height = upper ? t2.y - t1.y : t1.y - t0.y;
-        height = upper ? t2.y - y : y - t0.y;
-        va = upper ? Vec2f{t1.x-t2.x, t1.y-t2.y} : Vec2f{t1.x-t0.x, t1.y-t0.y};
-        vb = upper ? Vec2f{t0.x-t2.x, t0.y-t2.y} : Vec2f{t2.x-t0.x, t2.y-t0.y};
-        ori = upper ? Vec2f{t2.x, t2.y} : Vec2f{t0.x, t0.y};
-        alpha = (float)height / seg_height;
-        beta = (float)height / tot_height;
-        a = va * alpha + ori; //cause for flaot !
-        b = vb * beta + ori;
-        if(a.x > b.x)swap(a, b);
-        for(int x = a.x; x <= b.x; x++)
-            image.set(x, y, color);
+void projection(float coeff) {
+    Projection = Matrix::identity();
+    Projection[3][2] = coeff;
+}
+
+void lookat(Vec3f eye, Vec3f center, Vec3f up) {
+    Vec3f z = (eye-center).normalize();
+    Vec3f x = cross(up,z).normalize();
+    Vec3f y = cross(z,x).normalize();
+    ModelView = Matrix::identity();
+    for (int i=0; i<3; i++) {
+        ModelView[0][i] = x[i];
+        ModelView[1][i] = y[i];
+        ModelView[2][i] = z[i];
+        ModelView[i][3] = -center[i];
     }
 }
 
@@ -102,10 +66,10 @@ void triangle_bary(Vec3f* pts, float* zbuffer, TGAImage &image, Vec2i* uvs, floa
     Vec2i bboxmax(0, 0);
     for(int i = 0; i < 3; i++)
     {
-        bboxmin.x = max(0, min(bboxmin.x, (int)pts[i].x));
-        bboxmin.y = max(0, min(bboxmin.y, (int)pts[i].y));
-        bboxmax.x = min(image.get_width()  - 1,  max(bboxmax.x, (int)pts[i].x));
-        bboxmax.y = min(image.get_height() - 1,  max(bboxmax.y, (int)pts[i].y));
+        bboxmin.x = std::max(0, std::min(bboxmin.x, (int)pts[i].x));
+        bboxmin.y = std::max(0, std::min(bboxmin.y, (int)pts[i].y));
+        bboxmax.x = std::min(image.get_width()  - 1,  std::max(bboxmax.x, (int)pts[i].x));
+        bboxmax.y = std::min(image.get_height() - 1,  std::max(bboxmax.y, (int)pts[i].y));
     }
     for(int x = bboxmin.x; x <= bboxmax.x; x++)
     {
@@ -127,11 +91,14 @@ void triangle_bary(Vec3f* pts, float* zbuffer, TGAImage &image, Vec2i* uvs, floa
 
 int main(int argc, char** argv) {
     TGAImage image(width, height, TGAImage::RGB);
-    Vec3f light_dir(0, 0, -1);
     
     model = new Model("obj/african_head.obj");
     float* zbuffer = new float[width * height];
     for(int i = width * height; i--; zbuffer[i] = -std::numeric_limits<float>::max());
+
+    viewport(0, 0, width, height);
+    projection(-1.f/(eye.z));
+    light_dir.normalize();
 
     for(int i = 0; i < model->nfaces(); i++)
     {
@@ -141,9 +108,13 @@ int main(int argc, char** argv) {
         for(int j = 0; j < 3; j++)
         {
             world_coord[j] = model->vert(f[j]);
-            screen_coord[j] = Vec3f((world_coord[j].x + 1)*width/2., (world_coord[j].y + 1)*height/2., world_coord[j].z);
+            Vec4f tmp = embed<4>(world_coord[j]);
+            Vec4f tmp2 = Projection*tmp;
+            tmp2 = tmp2 / tmp2[3];
+            tmp2 = Viewport * tmp2;
+            screen_coord[j] = Vec3f(tmp2[0], tmp2[1], tmp2[2]);
         }
-        Vec3f normal = cross((world_coord[2] - world_coord[0]), (world_coord[1] - world_coord[0]));
+        Vec3f normal = cross((world_coord[2] - world_coord[0]) ,(world_coord[1] - world_coord[0]));
         normal.normalize();
         float intensity = normal * light_dir;
         Vec2i* uvs = new Vec2i[3];
