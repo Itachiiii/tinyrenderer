@@ -13,8 +13,9 @@ const int width = 800;
 const int height = 800;
 Model* model = nullptr;
 
-Vec3f light_dir(0,0,-1);
-Vec3f eye(0,0,3);
+Vec3f light_dir = Vec3f(1,-1,1).normalize();
+Vec3f eye(1,1,3);
+Vec3f center(0,0,0);
 
 const int depth = 255;
 Matrix Projection,ModelView,Viewport;
@@ -23,10 +24,10 @@ void viewport(int x, int y, int w, int h) {
     Viewport = Matrix::identity();
     Viewport[0][3] = x+w/2.f;
     Viewport[1][3] = y+h/2.f;
-    Viewport[2][3] = 255.f/2.f;
+    Viewport[2][3] = depth/2.f;
     Viewport[0][0] = w/2.f;
     Viewport[1][1] = h/2.f;
-    Viewport[2][2] = 255.f/2.f;
+    Viewport[2][2] = depth/2.f;
 }
 
 void projection(float coeff) {
@@ -60,7 +61,7 @@ Vec3f barycentric(Vec3f* pts, Vec3f p)
     return Vec3f(1.f - u - v, u, v);
 }
 
-void triangle_bary(Vec3f* pts, float* zbuffer, TGAImage &image, Vec2i* uvs, float intensity)
+void triangle_bary(Vec3f* pts, float* zbuffer, TGAImage &image, float* intensity)
 {
     Vec2i bboxmin(image.get_width() - 1, image.get_height() - 1);
     Vec2i bboxmax(0, 0);
@@ -79,8 +80,8 @@ void triangle_bary(Vec3f* pts, float* zbuffer, TGAImage &image, Vec2i* uvs, floa
             if(bc.x < 0 || bc.y < 0 || bc.z < 0)continue;
             float z = 0;
             z = pts[0].z * bc.x + pts[1].z * bc.y + pts[2].z * bc.z;
-            Vec2i uv = uvs[0] * bc.x + uvs[1] * bc.y + uvs[2] * bc.z;
-            TGAColor color = model->diffuse(uv) * intensity;
+            float _intensity = intensity[0] * bc.x + intensity[1] * bc.y + intensity[2] * bc.z;
+            TGAColor color = TGAColor(255,255,255) * _intensity;
             if(z > zbuffer[x + y * width]){
                 zbuffer[x + y * width] = z;
                 image.set(x, y, color);
@@ -96,41 +97,33 @@ int main(int argc, char** argv) {
     float* zbuffer = new float[width * height];
     for(int i = width * height; i--; zbuffer[i] = -std::numeric_limits<float>::max());
 
-    viewport(0, 0, width, height);
-    projection(-1.f/(eye.z));
-    light_dir.normalize();
+    lookat(eye,center,Vec3f(0,1,0));
+    viewport(width/8, height/8, width*3/4, height*3/4);
+    projection(-1.f/(eye - center).norm());
 
     for(int i = 0; i < model->nfaces(); i++)
     {
         vector<int> f = model->face(i);
         Vec3f world_coord[3];
         Vec3f screen_coord[3];
+        float intensity[3];
         for(int j = 0; j < 3; j++)
         {
             world_coord[j] = model->vert(f[j]);
             Vec4f tmp = embed<4>(world_coord[j]);
-            Vec4f tmp2 = Projection*tmp;
+            Vec4f tmp2 = Viewport*Projection*ModelView*tmp;
             tmp2 = tmp2 / tmp2[3];
-            tmp2 = Viewport * tmp2;
             screen_coord[j] = Vec3f(tmp2[0], tmp2[1], tmp2[2]);
+            intensity[j] = light_dir * model->normal(i,j);
         }
-        Vec3f normal = cross((world_coord[2] - world_coord[0]) ,(world_coord[1] - world_coord[0]));
-        normal.normalize();
-        float intensity = normal * light_dir;
-        Vec2i* uvs = new Vec2i[3];
-        for(int j = 0; j < 3; j++)
-            uvs[j] = model->uv(i,j);
-        if(intensity > 0)
-        {
-            // method 1
-            triangle_bary(screen_coord, zbuffer, image, uvs, intensity);
+        //method1
+        triangle_bary(screen_coord, zbuffer, image, intensity);
 
-            // method 2
-            // triangle(Vec2i(screen_coord[0].x, screen_coord[0].y), 
-            //         Vec2i(screen_coord[1].x, screen_coord[1].y),
-            //         Vec2i(screen_coord[2].x, screen_coord[2].y),
-            //         image, TGAColor(intensity*255, intensity*255, intensity*255, 255));
-        }
+        // method 2
+        // triangle(Vec2i(screen_coord[0].x, screen_coord[0].y), 
+        //         Vec2i(screen_coord[1].x, screen_coord[1].y),
+        //         Vec2i(screen_coord[2].x, screen_coord[2].y),
+        //         image, TGAColor(intensity*255, intensity*255, intensity*255, 255));
     }
 
     image.flip_vertically(); // i want to have the origin at the left bottom corner of the image
