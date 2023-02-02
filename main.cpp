@@ -37,6 +37,30 @@ struct GouraudShader : public IShader {
     }
 };
 
+struct DebugShader : public IShader {
+    Vec3f varying_intensity; // written by vertex shader, read by fragment shader
+
+    Vec4f vertex(int iface, int nthvert) {
+        varying_intensity[nthvert] = max(0.f, light_dir * model->normal(iface, nthvert));
+        Vec4f gl_Vertex = embed<4>(model->vert(iface,nthvert));
+        gl_Vertex = Viewport * Projection * ModelView * gl_Vertex;
+        gl_Vertex = gl_Vertex / gl_Vertex[3];
+        return gl_Vertex;
+    }
+
+    bool fragment(Vec3f bar, TGAColor &color) {
+        float intensity = varying_intensity*bar;
+        if (intensity>.85) intensity = 1;
+        else if (intensity>.60) intensity = .80;
+        else if (intensity>.45) intensity = .60;
+        else if (intensity>.30) intensity = .45;
+        else if (intensity>.15) intensity = .30;
+        else intensity = 0;
+        color = TGAColor(255, 155, 0)*intensity;
+        return false;
+    }
+};
+
 int main(int argc, char** argv) {
     TGAImage image(width, height, TGAImage::RGB);
 
@@ -49,7 +73,7 @@ int main(int argc, char** argv) {
     projection(-1.f/(eye - center).norm());
     light_dir.normalize();
 
-    GouraudShader shader;
+    DebugShader shader;
     for(int i = 0; i < model->nfaces(); i++)
     {
         vector<int> f = model->face(i);
