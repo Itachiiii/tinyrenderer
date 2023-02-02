@@ -61,6 +61,27 @@ struct DebugShader : public IShader {
     }
 };
 
+struct Shader : public IShader {
+    Vec3f varying_intensity; // written by vertex shader, read by fragment shader
+    mat<2,3,float> varying_uv; // written by vertex shader, read by fragment shader
+
+    Vec4f vertex(int iface, int nthvert) {
+        varying_intensity[nthvert] = max(0.f, light_dir * model->normal(iface, nthvert));
+        varying_uv.set_col(nthvert, model->uv(iface, nthvert));
+        Vec4f gl_Vertex = embed<4>(model->vert(iface,nthvert));
+        gl_Vertex = Viewport * Projection * ModelView * gl_Vertex;
+        gl_Vertex = gl_Vertex / gl_Vertex[3];
+        return gl_Vertex;
+    }
+
+    bool fragment(Vec3f bar, TGAColor &color) {
+        float intensity = varying_intensity*bar;
+        Vec2f uv = varying_uv * bar;
+        color = model->diffuse(uv) * intensity;
+        return false;
+    }
+};
+
 int main(int argc, char** argv) {
     TGAImage image(width, height, TGAImage::RGB);
 
@@ -73,7 +94,7 @@ int main(int argc, char** argv) {
     projection(-1.f/(eye - center).norm());
     light_dir.normalize();
 
-    DebugShader shader;
+    Shader shader;
     for(int i = 0; i < model->nfaces(); i++)
     {
         vector<int> f = model->face(i);
