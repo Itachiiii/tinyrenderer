@@ -103,6 +103,35 @@ struct DetailedShader : public IShader {
     }
 };
 
+struct PhongShader : public IShader {
+    mat<2,3,float> varying_uv; // written by vertex shader, read by fragment shader
+    mat<3,3,float> varying_view_pos;
+
+    Vec4f vertex(int iface, int nthvert) {
+        varying_uv.set_col(nthvert, model->uv(iface, nthvert));
+        Vec4f gl_Vertex = embed<4>(model->vert(iface,nthvert));
+        varying_view_pos.set_col(nthvert, proj<3>(ModelView * gl_Vertex));
+        gl_Vertex = Viewport * Projection * ModelView * gl_Vertex;
+        gl_Vertex = gl_Vertex / gl_Vertex[3];
+        return gl_Vertex;
+    }
+
+    bool fragment(Vec3f bar, TGAColor &color) {
+        Vec2f uv = varying_uv * bar;
+        Vec3f view_pos = varying_view_pos * bar;
+        Vec3f n = proj<3>(MIT * embed<4>(model->normal(uv))).normalize();
+        Vec3f l = proj<3>(ModelView * embed<4>(light_dir)).normalize(); // to the light
+        Vec3f r = n * 2 * (n * l) - l;
+        Vec3f v = (eye - view_pos).normalize();
+        float specular = pow( std::max(0.f, r * v), model->specular(uv));
+        float diffuse = std::max(0.f, l * n);
+        TGAColor c = model->diffuse(uv);
+        color = c;
+        for (int i=0; i<3; i++) color[i] = std::min<float>(5 + c[i]*(diffuse + .6*specular), 255);
+        return false;
+    }
+};
+
 int main(int argc, char** argv) {
     TGAImage image(width, height, TGAImage::RGB);
 
@@ -115,7 +144,7 @@ int main(int argc, char** argv) {
     projection(-1.f/(eye - center).norm());
     light_dir.normalize();
 
-    DetailedShader shader;
+    PhongShader shader;
     MIT = ModelView.invert_transpose();
     for(int i = 0; i < model->nfaces(); i++)
     {
