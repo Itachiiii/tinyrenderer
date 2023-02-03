@@ -6,6 +6,7 @@
 Matrix ModelView;
 Matrix Viewport;
 Matrix Projection;
+Matrix MIT; // inverse & transpose of modelview
 
 IShader::~IShader() {}
 

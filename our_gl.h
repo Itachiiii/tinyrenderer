@@ -7,6 +7,7 @@
 extern Matrix ModelView;
 extern Matrix Viewport;
 extern Matrix Projection;
+extern Matrix MIT;
 
 void viewport(int x, int y, int w, int h);
 void projection(float coeff=0.f); // coeff = -1/c
