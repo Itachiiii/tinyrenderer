@@ -1,6 +1,5 @@
 #ifndef __GEOMETRY_H__
 #define __GEOMETRY_H__
-
 #include <cmath>
 #include <vector>
 #include <cassert>
@@ -173,6 +172,16 @@ public:
         T tmp = ret[0]*rows[0];
         return ret/tmp;
     }
+
+    mat<DimRows,DimCols,T> invert() {
+        return invert_transpose().transpose();
+    }
+
+    mat<DimCols,DimRows,T> transpose() {
+        mat<DimCols,DimRows,T> ret;
+        for (size_t i=DimCols; i--; ret[i]=this->col(i));
+        return ret;
+    }
 };
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -208,5 +217,5 @@ typedef vec<3,  float> Vec3f;
 typedef vec<3,  int>   Vec3i;
 typedef vec<4,  float> Vec4f;
 typedef mat<4,4,float> Matrix;
-
 #endif //__GEOMETRY_H__
+

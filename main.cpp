@@ -132,10 +132,56 @@ struct PhongShader : public IShader {
     }
 };
 
+struct NMShader : public IShader {
+    mat<2,3,float> varying_uv; // written by vertex shader, read by fragment shader
+    mat<3,3,float> varying_view_pos;
+    mat<3,3,float> varying_nrm;
+
+    Vec4f vertex(int iface, int nthvert) {
+        varying_uv.set_col(nthvert, model->uv(iface, nthvert));
+        varying_nrm.set_col(nthvert, proj<3>(ModelView * embed<4>(model->normal(iface, nthvert), 0.f)));
+        Vec4f gl_Vertex = embed<4>(model->vert(iface,nthvert));
+        varying_view_pos.set_col(nthvert, proj<3>(ModelView * gl_Vertex));
+        gl_Vertex = Viewport * Projection * ModelView * gl_Vertex;
+        gl_Vertex = gl_Vertex / gl_Vertex[3];
+        return gl_Vertex;
+    }
+
+    bool fragment(Vec3f bar, TGAColor &color) {
+        Vec2f uv = varying_uv * bar;
+        Vec3f bn = (varying_nrm * bar).normalize();
+        Vec3f view_pos = varying_view_pos * bar;
+
+        mat<3,3,float> A;
+        A[0] = varying_view_pos.col(1) - varying_view_pos.col(0);
+        A[1] = varying_view_pos.col(2) - varying_view_pos.col(0);
+        A[2] = bn;
+
+        mat<3,3,float> AI = A.invert();
+
+        Vec3f i = AI * Vec3f(varying_uv[0][1] - varying_uv[0][0], varying_uv[0][2] - varying_uv[0][0], 0);
+        Vec3f j = AI * Vec3f(varying_uv[1][1] - varying_uv[1][0], varying_uv[1][2] - varying_uv[1][0], 0);
+
+        i = (i - bn * (bn * i )).normalize(); // add a re-orthogonalize
+        j = cross(bn, i);
+
+        mat<3,3,float> TBN;
+        TBN.set_col(0,i.normalize());
+        TBN.set_col(1,j.normalize());
+        TBN.set_col(2,bn);
+
+        Vec3f n = (TBN * model->normal(uv)).normalize();
+        Vec3f l = proj<3>(ModelView * embed<4>(light_dir)).normalize(); // to the light
+        float diffuse = std::max(0.f, l * n);
+        color = model->diffuse(uv)*diffuse;
+        return false;
+    }
+};
+
 int main(int argc, char** argv) {
     TGAImage image(width, height, TGAImage::RGB);
 
-    model = new Model("obj/african_head.obj");
+    model = new Model("obj/african_head/african_head.obj");
     float* zbuffer = new float[width * height];
     for(int i = width * height; i--; zbuffer[i] = -std::numeric_limits<float>::max());
     
@@ -144,7 +190,7 @@ int main(int argc, char** argv) {
     projection(-1.f/(eye - center).norm());
     light_dir.normalize();
 
-    PhongShader shader;
+    NMShader shader;
     MIT = ModelView.invert_transpose();
     for(int i = 0; i < model->nfaces(); i++)
     {
