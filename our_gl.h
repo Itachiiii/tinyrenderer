@@ -8,6 +8,7 @@ extern Matrix ModelView;
 extern Matrix Viewport;
 extern Matrix Projection;
 extern Matrix MIT;
+extern Matrix MI;
 
 void viewport(int x, int y, int w, int h);
 void projection(float coeff=0.f); // coeff = -1/c
@@ -21,7 +22,7 @@ struct IShader {
 
 void triangle_ans(Vec4f *pts, IShader &shader, TGAImage &image, TGAImage &zbuffer);
 void triangle2(Vec2i t0, Vec2i t1, Vec2i t2, TGAImage &image, TGAColor color);
-void triangle_bary(IShader& shader, Vec3f* pts, float* zbuffer, TGAImage &image, int width);
+void triangle_bary(IShader& shader, Vec3f* pts, float* zbuffer, TGAImage &image);
 
 
 #endif //__OUR_GL_H__

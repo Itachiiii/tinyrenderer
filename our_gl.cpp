@@ -7,6 +7,7 @@ Matrix ModelView;
 Matrix Viewport;
 Matrix Projection;
 Matrix MIT; // inverse & transpose of modelview
+Matrix MI;
 
 IShader::~IShader() {}
 
@@ -91,7 +92,7 @@ void triangle_ans(Vec4f *pts, IShader &shader, TGAImage &image, TGAImage &zbuffe
     }
 }
 
-void triangle_bary(IShader& shader, Vec3f* pts, float* zbuffer, TGAImage &image, int width)
+void triangle_bary(IShader& shader, Vec3f* pts, float* zbuffer, TGAImage &image)
 {
     Vec2i bboxmin(image.get_width() - 1, image.get_height() - 1);
     Vec2i bboxmax(0, 0);
@@ -110,10 +111,10 @@ void triangle_bary(IShader& shader, Vec3f* pts, float* zbuffer, TGAImage &image,
             Vec3f bc = barycentric(pts, Vec3f(x+0.5f, y+0.5f, 1));
             float z = 0;
             z = pts[0].z * bc.x + pts[1].z * bc.y + pts[2].z * bc.z;
-            if(bc.x < 0 || bc.y < 0 || bc.z < 0 || z < zbuffer[x + y * width])continue;
+            if(bc.x < 0 || bc.y < 0 || bc.z < 0 || z < zbuffer[x + y * image.get_width()])continue;
             bool discard = shader.fragment(bc,color);
             if(!discard){
-                zbuffer[x + y * width] = z;
+                zbuffer[x + y * image.get_width()] = z;
                 image.set(x, y, color);
             }
         }

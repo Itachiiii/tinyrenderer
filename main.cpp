@@ -12,10 +12,13 @@ const TGAColor red   = TGAColor(255, 0,   0,   255);
 const TGAColor green = TGAColor(0, 255,   0,   255);
 const int width = 800;
 const int height = 800;
+const int shadowsize = 800;
 Model* model = nullptr;
+float* shadowbuffer = nullptr;
+Matrix ModelViewViewportLight;
 
-Vec3f light_dir(1,1,1);
-Vec3f       eye(1,1,3);
+Vec3f light_dir(1,1,0);
+Vec3f       eye(1,1,4);
 Vec3f    center(0,0,0);
 Vec3f        up(0,1,0);
 
@@ -178,20 +181,101 @@ struct NMShader : public IShader {
     }
 };
 
+struct SShader : public IShader {
+    mat<2,3,float> varying_uv; // written by vertex shader, read by fragment shader
+    mat<3,3,float> varying_view_pos;
+
+    Vec4f vertex(int iface, int nthvert) {
+        varying_uv.set_col(nthvert, model->uv(iface, nthvert));
+        Vec4f gl_Vertex = embed<4>(model->vert(iface,nthvert));
+        varying_view_pos.set_col(nthvert, proj<3>(ModelView * gl_Vertex));
+        gl_Vertex = Viewport * Projection * ModelView * gl_Vertex;
+        gl_Vertex = gl_Vertex / gl_Vertex[3];
+        return gl_Vertex;
+    }
+
+    bool fragment(Vec3f bar, TGAColor &color) { 
+        Vec2f uv = varying_uv * bar;
+        Vec3f view_pos = varying_view_pos * bar;
+        Vec3f light_pos = proj<3>(ModelViewViewportLight * ModelView.invert() * embed<4>(view_pos));
+        int id = int(light_pos[0]) + int(light_pos[1]) * width;
+        assert(id >= 0 && id < shadowsize * shadowsize);
+        float shadow = .3+.7*( shadowbuffer[id]<light_pos[2]+5);
+        Vec3f n = proj<3>(MIT * embed<4>(model->normal(uv))).normalize();
+        Vec3f l = proj<3>(ModelView * embed<4>(light_dir)).normalize(); // to the light
+        Vec3f r = (n * 2 * (n * l) - l).normalize();
+        Vec3f v = (eye - view_pos).normalize();
+        float specular = pow( std::max(0.f, r * v), model->specular(uv));
+        float diffuse = std::max(0.f, l * n);
+        TGAColor c = model->diffuse(uv);
+        color = c;
+        for (int i=0; i<3; i++) color[i] = std::min<float>(20 + c[i]*shadow*(1.2*diffuse + .6*specular), 255);
+        return false;
+    }
+};
+
+
+struct DepthShader : public IShader {
+    Vec3f varying_z;
+
+    Vec4f vertex(int iface, int nthvert) {
+        Vec4f gl_Vertex = embed<4>(model->vert(iface,nthvert));
+        varying_z[nthvert] = (ModelView * gl_Vertex)[2];
+        gl_Vertex = Viewport * Projection * ModelView * gl_Vertex;
+        return gl_Vertex;
+    }
+
+    bool fragment(Vec3f bar, TGAColor &color) {
+        float z = varying_z * bar;
+        color = TGAColor(255, 255, 255)*(z);
+        return false;
+    }
+};
+
 int main(int argc, char** argv) {
     TGAImage image(width, height, TGAImage::RGB);
+    TGAImage shadowmap(shadowsize, shadowsize, TGAImage::GRAYSCALE);
 
-    model = new Model("obj/african_head/african_head.obj");
+    model = new Model("obj/diablo3_pose.obj");
+    light_dir.normalize();
     float* zbuffer = new float[width * height];
+    shadowbuffer = new float[shadowsize * shadowsize];
     for(int i = width * height; i--; zbuffer[i] = -std::numeric_limits<float>::max());
+    for(int i = shadowsize * shadowsize; i--; shadowbuffer[i] = -std::numeric_limits<float>::max());
+
+    lookat(light_dir,center,Vec3f(0,1,0));
+    viewport(shadowsize/8, shadowsize/8, shadowsize*3/4, shadowsize*3/4);
+    projection(0);
+    ModelViewViewportLight = Viewport * ModelView;
+
+    DepthShader depthshader;
+    for(int i = 0; i < model->nfaces(); i++)
+    {
+        vector<int> f = model->face(i);
+        Vec3f world_coord[3];
+        Vec3f screen_coord[3];
+        //-----------------------------vertex processing-----------------------------
+        for(int j = 0; j < 3; j++)
+        {
+            world_coord[j] = model->vert(f[j]);
+            Vec4f tmp = depthshader.vertex(i,j);
+            screen_coord[j] = Vec3f(tmp[0],tmp[1],tmp[2]);
+        }
+
+        //-----------------------------primitive processing-----------------------------
+        triangle_bary(depthshader, screen_coord, shadowbuffer, shadowmap);
+    }
+
+    shadowmap.flip_vertically();
+    shadowmap.write_tga_file("depth.tga");
     
     lookat(eye,center,Vec3f(0,1,0));
     viewport(width/8, height/8, width*3/4, height*3/4);
     projection(-1.f/(eye - center).norm());
-    light_dir.normalize();
 
-    NMShader shader;
+    SShader shader;
     MIT = ModelView.invert_transpose();
+    MI = ModelView.invert();
     for(int i = 0; i < model->nfaces(); i++)
     {
         vector<int> f = model->face(i);
@@ -206,7 +290,7 @@ int main(int argc, char** argv) {
         }
 
         //-----------------------------primitive processing-----------------------------
-        triangle_bary(shader, screen_coord, zbuffer, image, width);
+        triangle_bary(shader, screen_coord, zbuffer, image);
     }
 
     image.flip_vertically(); // i want to have the origin at the left bottom corner of the image
