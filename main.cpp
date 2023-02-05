@@ -15,219 +15,79 @@ const int height = 800;
 const int shadowsize = 800;
 Model* model = nullptr;
 float* shadowbuffer = nullptr;
-Matrix ModelViewViewportLight;
+float* zbuffer = nullptr;
 
 Vec3f light_dir(1,1,0);
-Vec3f       eye(1,1,4);
+Vec3f   eye(1.2,-.8,3);
 Vec3f    center(0,0,0);
 Vec3f        up(0,1,0);
 
-struct GouraudShader : public IShader {
-    Vec3f varying_intensity; // written by vertex shader, read by fragment shader
+TGAImage total(1024, 1024, TGAImage::GRAYSCALE);
+TGAImage  occl(1024, 1024, TGAImage::GRAYSCALE);
+
+Vec3f rand_point_on_unit_sphere() {
+    float u = (float)rand()/(float)RAND_MAX;
+    float v = (float)rand()/(float)RAND_MAX;
+    float theta = 2.f*M_PI*u;
+    float phi   = acos(2.f*v - 1.f);
+    return Vec3f(sin(phi)*cos(theta), sin(phi)*sin(theta), cos(phi));
+}
+
+struct ZShader : public IShader {
+    mat<4,3,float> varying_tri;
 
     Vec4f vertex(int iface, int nthvert) {
-        varying_intensity[nthvert] = max(0.f, light_dir * model->normal(iface, nthvert));
-        Vec4f gl_Vertex = embed<4>(model->vert(iface,nthvert));
-        gl_Vertex = Viewport * Projection * ModelView * gl_Vertex;
-        gl_Vertex = gl_Vertex / gl_Vertex[3];
+        Vec4f gl_Vertex = Viewport*ModelView*embed<4>(model->vert(iface,nthvert));
+        varying_tri.set_col(nthvert, gl_Vertex);
         return gl_Vertex;
     }
 
     bool fragment(Vec3f bar, TGAColor &color) {
-        float intensity = varying_intensity * bar;  // no, we do not discard this pixel
-        color = TGAColor(255,255,255) * intensity;
-        return false;
-    }
-};
-
-struct DebugShader : public IShader {
-    Vec3f varying_intensity; // written by vertex shader, read by fragment shader
-
-    Vec4f vertex(int iface, int nthvert) {
-        varying_intensity[nthvert] = max(0.f, light_dir * model->normal(iface, nthvert));
-        Vec4f gl_Vertex = embed<4>(model->vert(iface,nthvert));
-        gl_Vertex = Viewport * Projection * ModelView * gl_Vertex;
-        gl_Vertex = gl_Vertex / gl_Vertex[3];
-        return gl_Vertex;
-    }
-
-    bool fragment(Vec3f bar, TGAColor &color) {
-        float intensity = varying_intensity*bar;
-        if (intensity>.85) intensity = 1;
-        else if (intensity>.60) intensity = .80;
-        else if (intensity>.45) intensity = .60;
-        else if (intensity>.30) intensity = .45;
-        else if (intensity>.15) intensity = .30;
-        else intensity = 0;
-        color = TGAColor(255, 155, 0)*intensity;
+        Vec4f vppos = varying_tri * bar;
+        color = TGAColor(255, 255, 255)*((vppos[2])/250.f);
         return false;
     }
 };
 
 struct Shader : public IShader {
-    Vec3f varying_intensity; // written by vertex shader, read by fragment shader
-    mat<2,3,float> varying_uv; // written by vertex shader, read by fragment shader
+    mat<2,3,float> varying_uv;
+    mat<4,3,float> varying_tri;
 
-    Vec4f vertex(int iface, int nthvert) {
-        varying_intensity[nthvert] = max(0.f, light_dir * model->normal(iface, nthvert));
+    virtual Vec4f vertex(int iface, int nthvert) {
         varying_uv.set_col(nthvert, model->uv(iface, nthvert));
-        Vec4f gl_Vertex = embed<4>(model->vert(iface,nthvert));
-        gl_Vertex = Viewport * Projection * ModelView * gl_Vertex;
-        gl_Vertex = gl_Vertex / gl_Vertex[3];
+        Vec4f gl_Vertex = Viewport*ModelView*embed<4>(model->vert(iface, nthvert));
+        varying_tri.set_col(nthvert, gl_Vertex);
         return gl_Vertex;
     }
 
-    bool fragment(Vec3f bar, TGAColor &color) {
-        float intensity = varying_intensity*bar;
-        Vec2f uv = varying_uv * bar;
-        color = model->diffuse(uv) * intensity;
+    virtual bool fragment(Vec3f bar, TGAColor &color) {
+        Vec2f uv = varying_uv*bar;
+        Vec4f vppos = varying_tri * bar;
+        if (std::abs(shadowbuffer[int(vppos[0])+int(vppos[1])*width]-vppos[2])<1e-2) {
+            occl.set(uv.x*1024, uv.y*1024, TGAColor(255));
+        }
+        color = TGAColor(255, 0, 0);
         return false;
     }
 };
 
-struct DetailedShader : public IShader {
-    mat<2,3,float> varying_uv; // written by vertex shader, read by fragment shader
+struct AOShader : public IShader {
+    mat<2,3,float> varying_uv;
+    mat<4,3,float> varying_tri;
+    TGAImage aoimage;
 
-    Vec4f vertex(int iface, int nthvert) {
+    virtual Vec4f vertex(int iface, int nthvert) {
         varying_uv.set_col(nthvert, model->uv(iface, nthvert));
-        Vec4f gl_Vertex = embed<4>(model->vert(iface,nthvert));
-        gl_Vertex = Viewport * Projection * ModelView * gl_Vertex;
+        Vec4f gl_Vertex = Viewport*Projection*ModelView*embed<4>(model->vert(iface, nthvert));
         gl_Vertex = gl_Vertex / gl_Vertex[3];
+        varying_tri.set_col(nthvert, gl_Vertex);
         return gl_Vertex;
     }
 
-    bool fragment(Vec3f bar, TGAColor &color) {
-        Vec2f uv = varying_uv * bar;
-        Vec3f n = proj<3>(MIT * embed<4>(model->normal(uv))).normalize();
-        Vec3f l = proj<3>(ModelView * embed<4>(light_dir)).normalize();
-        float intensity = max(0.f, l * n);
-        color = model->diffuse(uv) * intensity;
-        return false;
-    }
-};
-
-struct PhongShader : public IShader {
-    mat<2,3,float> varying_uv; // written by vertex shader, read by fragment shader
-    mat<3,3,float> varying_view_pos;
-
-    Vec4f vertex(int iface, int nthvert) {
-        varying_uv.set_col(nthvert, model->uv(iface, nthvert));
-        Vec4f gl_Vertex = embed<4>(model->vert(iface,nthvert));
-        varying_view_pos.set_col(nthvert, proj<3>(ModelView * gl_Vertex));
-        gl_Vertex = Viewport * Projection * ModelView * gl_Vertex;
-        gl_Vertex = gl_Vertex / gl_Vertex[3];
-        return gl_Vertex;
-    }
-
-    bool fragment(Vec3f bar, TGAColor &color) {
-        Vec2f uv = varying_uv * bar;
-        Vec3f view_pos = varying_view_pos * bar;
-        Vec3f n = proj<3>(MIT * embed<4>(model->normal(uv))).normalize();
-        Vec3f l = proj<3>(ModelView * embed<4>(light_dir)).normalize(); // to the light
-        Vec3f r = n * 2 * (n * l) - l;
-        Vec3f v = (eye - view_pos).normalize();
-        float specular = pow( std::max(0.f, r * v), model->specular(uv));
-        float diffuse = std::max(0.f, l * n);
-        TGAColor c = model->diffuse(uv);
-        color = c;
-        for (int i=0; i<3; i++) color[i] = std::min<float>(5 + c[i]*(diffuse + .6*specular), 255);
-        return false;
-    }
-};
-
-struct NMShader : public IShader {
-    mat<2,3,float> varying_uv; // written by vertex shader, read by fragment shader
-    mat<3,3,float> varying_view_pos;
-    mat<3,3,float> varying_nrm;
-
-    Vec4f vertex(int iface, int nthvert) {
-        varying_uv.set_col(nthvert, model->uv(iface, nthvert));
-        varying_nrm.set_col(nthvert, proj<3>(ModelView * embed<4>(model->normal(iface, nthvert), 0.f)));
-        Vec4f gl_Vertex = embed<4>(model->vert(iface,nthvert));
-        varying_view_pos.set_col(nthvert, proj<3>(ModelView * gl_Vertex));
-        gl_Vertex = Viewport * Projection * ModelView * gl_Vertex;
-        gl_Vertex = gl_Vertex / gl_Vertex[3];
-        return gl_Vertex;
-    }
-
-    bool fragment(Vec3f bar, TGAColor &color) {
-        Vec2f uv = varying_uv * bar;
-        Vec3f bn = (varying_nrm * bar).normalize();
-        Vec3f view_pos = varying_view_pos * bar;
-
-        mat<3,3,float> A;
-        A[0] = varying_view_pos.col(1) - varying_view_pos.col(0);
-        A[1] = varying_view_pos.col(2) - varying_view_pos.col(0);
-        A[2] = bn;
-
-        mat<3,3,float> AI = A.invert();
-
-        Vec3f i = AI * Vec3f(varying_uv[0][1] - varying_uv[0][0], varying_uv[0][2] - varying_uv[0][0], 0);
-        Vec3f j = AI * Vec3f(varying_uv[1][1] - varying_uv[1][0], varying_uv[1][2] - varying_uv[1][0], 0);
-
-        i = (i - bn * (bn * i )).normalize(); // add a re-orthogonalize
-        j = cross(bn, i);
-
-        mat<3,3,float> TBN;
-        TBN.set_col(0,i.normalize());
-        TBN.set_col(1,j.normalize());
-        TBN.set_col(2,bn);
-
-        Vec3f n = (TBN * model->normal(uv)).normalize();
-        Vec3f l = proj<3>(ModelView * embed<4>(light_dir)).normalize(); // to the light
-        float diffuse = std::max(0.f, l * n);
-        color = model->diffuse(uv)*diffuse;
-        return false;
-    }
-};
-
-struct SShader : public IShader {
-    mat<2,3,float> varying_uv; // written by vertex shader, read by fragment shader
-    mat<3,3,float> varying_view_pos;
-
-    Vec4f vertex(int iface, int nthvert) {
-        varying_uv.set_col(nthvert, model->uv(iface, nthvert));
-        Vec4f gl_Vertex = embed<4>(model->vert(iface,nthvert));
-        varying_view_pos.set_col(nthvert, proj<3>(ModelView * gl_Vertex));
-        gl_Vertex = Viewport * Projection * ModelView * gl_Vertex;
-        gl_Vertex = gl_Vertex / gl_Vertex[3];
-        return gl_Vertex;
-    }
-
-    bool fragment(Vec3f bar, TGAColor &color) { 
-        Vec2f uv = varying_uv * bar;
-        Vec3f view_pos = varying_view_pos * bar;
-        Vec3f light_pos = proj<3>(ModelViewViewportLight * ModelView.invert() * embed<4>(view_pos));
-        int id = int(light_pos[0]) + int(light_pos[1]) * width;
-        assert(id >= 0 && id < shadowsize * shadowsize);
-        float shadow = .3+.7*( shadowbuffer[id]<light_pos[2]+5);
-        Vec3f n = proj<3>(MIT * embed<4>(model->normal(uv))).normalize();
-        Vec3f l = proj<3>(ModelView * embed<4>(light_dir)).normalize(); // to the light
-        Vec3f r = (n * 2 * (n * l) - l).normalize();
-        Vec3f v = (eye - view_pos).normalize();
-        float specular = pow( std::max(0.f, r * v), model->specular(uv));
-        float diffuse = std::max(0.f, l * n);
-        TGAColor c = model->diffuse(uv);
-        color = c;
-        for (int i=0; i<3; i++) color[i] = std::min<float>(20 + c[i]*shadow*(1.2*diffuse + .6*specular), 255);
-        return false;
-    }
-};
-
-
-struct DepthShader : public IShader {
-    Vec3f varying_z;
-
-    Vec4f vertex(int iface, int nthvert) {
-        Vec4f gl_Vertex = embed<4>(model->vert(iface,nthvert));
-        varying_z[nthvert] = (ModelView * gl_Vertex)[2];
-        gl_Vertex = Viewport * Projection * ModelView * gl_Vertex;
-        return gl_Vertex;
-    }
-
-    bool fragment(Vec3f bar, TGAColor &color) {
-        float z = varying_z * bar;
-        color = TGAColor(255, 255, 255)*(z);
+    virtual bool fragment(Vec3f bar, TGAColor &color) {
+        Vec2f uv = varying_uv*bar;
+        int t = aoimage.get(uv.x*1024, uv.y*1024)[0];
+        color = TGAColor(t, t, t);
         return false;
     }
 };
@@ -238,64 +98,89 @@ int main(int argc, char** argv) {
 
     model = new Model("obj/diablo3_pose.obj");
     light_dir.normalize();
-    float* zbuffer = new float[width * height];
+    zbuffer = new float[width * height];
     shadowbuffer = new float[shadowsize * shadowsize];
     for(int i = width * height; i--; zbuffer[i] = -std::numeric_limits<float>::max());
     for(int i = shadowsize * shadowsize; i--; shadowbuffer[i] = -std::numeric_limits<float>::max());
 
-    lookat(light_dir,center,Vec3f(0,1,0));
+    lookat(eye,center,up);
     viewport(shadowsize/8, shadowsize/8, shadowsize*3/4, shadowsize*3/4);
-    projection(0);
-    ModelViewViewportLight = Viewport * ModelView;
+    projection(-1.f/(eye-center).norm());
 
-    DepthShader depthshader;
-    for(int i = 0; i < model->nfaces(); i++)
-    {
+    // use pre-computed ao texture
+    TGAImage frame(width, height, TGAImage::RGB);
+    AOShader aoshader;
+    aoshader.aoimage.read_tga_file("occlusion1.tga");
+    aoshader.aoimage.flip_vertically();
+    for (int i=0; i<model->nfaces(); i++) {
         vector<int> f = model->face(i);
-        Vec3f world_coord[3];
         Vec3f screen_coord[3];
-        //-----------------------------vertex processing-----------------------------
         for(int j = 0; j < 3; j++)
         {
-            world_coord[j] = model->vert(f[j]);
-            Vec4f tmp = depthshader.vertex(i,j);
+            Vec4f tmp = aoshader.vertex(i,j);
             screen_coord[j] = Vec3f(tmp[0],tmp[1],tmp[2]);
         }
-
-        //-----------------------------primitive processing-----------------------------
-        triangle_bary(depthshader, screen_coord, shadowbuffer, shadowmap);
+        triangle_bary(aoshader, screen_coord, shadowbuffer, frame);
     }
-
-    shadowmap.flip_vertically();
-    shadowmap.write_tga_file("depth.tga");
-    
-    lookat(eye,center,Vec3f(0,1,0));
-    viewport(width/8, height/8, width*3/4, height*3/4);
-    projection(-1.f/(eye - center).norm());
-
-    SShader shader;
-    MIT = ModelView.invert_transpose();
-    MI = ModelView.invert();
-    for(int i = 0; i < model->nfaces(); i++)
-    {
-        vector<int> f = model->face(i);
-        Vec3f world_coord[3];
-        Vec3f screen_coord[3];
-        //-----------------------------vertex processing-----------------------------
-        for(int j = 0; j < 3; j++)
-        {
-            world_coord[j] = model->vert(f[j]);
-            Vec4f tmp = shader.vertex(i,j);
-            screen_coord[j] = Vec3f(tmp[0],tmp[1],tmp[2]);
-        }
-
-        //-----------------------------primitive processing-----------------------------
-        triangle_bary(shader, screen_coord, zbuffer, image);
-    }
-
-    image.flip_vertically(); // i want to have the origin at the left bottom corner of the image
-    image.write_tga_file("output.tga");
-    delete model;
+    frame.flip_vertically();
+    frame.write_tga_file("result1.tga");
     return 0;
+    
+    const int niters = 1000;
+    for(int iter = 1; iter <= niters; iter++)
+    {
+        for (int i=0; i<3; i++) up[i] = (float)rand()/(float)RAND_MAX;
+        eye = rand_point_on_unit_sphere();
+        eye.y = std::abs(eye.y);
+        for(int i = width * height; i--; zbuffer[i] = -std::numeric_limits<float>::max());
+        for(int i = shadowsize * shadowsize; i--; shadowbuffer[i] = -std::numeric_limits<float>::max());
+
+        TGAImage frame(width, height, TGAImage::RGB);
+        lookat(eye, center, up);
+        viewport(width/8, height/8, width*3/4, height*3/4);
+        projection(0);
+
+        ZShader zshader;
+        for (int i=0; i<model->nfaces(); i++) {
+            vector<int> f = model->face(i);
+            Vec3f screen_coord[3];
+            for(int j = 0; j < 3; j++)
+            {
+                Vec4f tmp = zshader.vertex(i,j);
+                screen_coord[j] = Vec3f(tmp[0],tmp[1],tmp[2]);
+            }
+            triangle_bary(zshader, screen_coord, shadowbuffer, frame);
+        }
+        frame.flip_vertically();
+        frame.write_tga_file("framebuffer1.tga");
+
+        Shader shader;
+        occl.clear();
+        for (int i=0; i<model->nfaces(); i++) {
+            vector<int> f = model->face(i);
+            Vec3f screen_coord[3];
+            for(int j = 0; j < 3; j++)
+            {
+                Vec4f tmp = shader.vertex(i,j);
+                screen_coord[j] = Vec3f(tmp[0],tmp[1],tmp[2]);
+            }
+            triangle_bary(shader, screen_coord, zbuffer, frame);
+        }
+
+        for (int i=0; i<1024; i++) {
+            for (int j=0; j<1024; j++) {
+                float tmp = total.get(i,j)[0];
+                total.set(i, j, TGAColor((tmp*(iter-1)+occl.get(i,j)[0])/(float)iter+.5f));
+            }
+        }
+    }
+    total.flip_vertically();
+    total.write_tga_file("occlusion1.tga");
+    occl.flip_vertically();
+    occl.write_tga_file("occl1.tga");
+
+    delete [] zbuffer;
+    delete model;
+    delete [] shadowbuffer;
 }
 
