@@ -49,6 +49,41 @@ struct ZShader : public IShader {
     }
 };
 
+struct SSZShader : public IShader {
+    mat<4,3,float> varying_tri;
+
+    Vec4f vertex(int iface, int nthvert) {
+        Vec4f gl_Vertex = ModelView*embed<4>(model->vert(iface,nthvert));
+        varying_tri.set_col(nthvert, gl_Vertex);
+        gl_Vertex =  Viewport * Projection* gl_Vertex;
+        gl_Vertex = gl_Vertex / gl_Vertex[3];
+        return gl_Vertex;
+    }
+
+    bool fragment(Vec3f bar, TGAColor &color) {
+        color = TGAColor(0, 0, 0);
+        return false;
+    }
+};
+
+float max_elevation_angle(float* zbuffer, Vec2f start, Vec2f dir)
+{
+    float max_angle = 0.f;
+    Vec2f nowpos = start;
+    int sx = nowpos[0], sy = nowpos[1];
+    for(float t = .0f; t <= 1000.f; t += 1.f)
+    {
+        nowpos = start + dir * t;
+        int x = nowpos[0], y = nowpos[1];
+        if(x >= width || x < 0 || y < 0 || y >= height) break;
+        float distance = (nowpos - start).norm();
+        if(distance <= 1)continue;
+        float zsub = zbuffer[x + y * width] - zbuffer[sx + sy * width];
+        max_angle = max(max_angle, atanf(zsub/distance));
+    }
+    return max_angle;
+}
+
 struct Shader : public IShader {
     mat<2,3,float> varying_uv;
     mat<4,3,float> varying_tri;
@@ -99,88 +134,46 @@ int main(int argc, char** argv) {
     model = new Model("obj/diablo3_pose.obj");
     light_dir.normalize();
     zbuffer = new float[width * height];
-    shadowbuffer = new float[shadowsize * shadowsize];
     for(int i = width * height; i--; zbuffer[i] = -std::numeric_limits<float>::max());
-    for(int i = shadowsize * shadowsize; i--; shadowbuffer[i] = -std::numeric_limits<float>::max());
 
+    TGAImage frame(width, height, TGAImage::RGB);
     lookat(eye,center,up);
-    viewport(shadowsize/8, shadowsize/8, shadowsize*3/4, shadowsize*3/4);
+    viewport(width/8, height/8, width*3/4, height*3/4);
     projection(-1.f/(eye-center).norm());
 
-    // use pre-computed ao texture
-    TGAImage frame(width, height, TGAImage::RGB);
-    AOShader aoshader;
-    aoshader.aoimage.read_tga_file("occlusion1.tga");
-    aoshader.aoimage.flip_vertically();
+    SSZShader zshader;
     for (int i=0; i<model->nfaces(); i++) {
         vector<int> f = model->face(i);
         Vec3f screen_coord[3];
         for(int j = 0; j < 3; j++)
         {
-            Vec4f tmp = aoshader.vertex(i,j);
+            Vec4f tmp = zshader.vertex(i,j);
             screen_coord[j] = Vec3f(tmp[0],tmp[1],tmp[2]);
         }
-        triangle_bary(aoshader, screen_coord, shadowbuffer, frame);
+        triangle_bary(zshader, screen_coord, zbuffer, frame, zshader.varying_tri);
+        //triangle_ans(zshader.varying_tri, zshader, frame, zbuffer);
     }
+
+    for (int x=0; x<width; x++) {
+        for (int y=0; y<height; y++) {
+            if (zbuffer[x+y*width] < -1e5) continue;
+            
+            float total = 0;
+            for(float angle = 0; angle < 2 * M_PI-1e-4; angle += (M_PI / 4)){
+                total += (M_PI / 2 - max_elevation_angle(zbuffer, Vec2f(x,y), Vec2f(cos(angle), sin(angle))));
+            }
+            
+            total /= 8 * (M_PI / 2);
+            total = pow(total, 100.0f);
+            frame.set(x, y, TGAColor(total*255, total*255, total*255));
+        }
+    }
+
     frame.flip_vertically();
-    frame.write_tga_file("result1.tga");
-    return 0;
+    frame.write_tga_file("framebuffer1.tga");
     
-    const int niters = 1000;
-    for(int iter = 1; iter <= niters; iter++)
-    {
-        for (int i=0; i<3; i++) up[i] = (float)rand()/(float)RAND_MAX;
-        eye = rand_point_on_unit_sphere();
-        eye.y = std::abs(eye.y);
-        for(int i = width * height; i--; zbuffer[i] = -std::numeric_limits<float>::max());
-        for(int i = shadowsize * shadowsize; i--; shadowbuffer[i] = -std::numeric_limits<float>::max());
-
-        TGAImage frame(width, height, TGAImage::RGB);
-        lookat(eye, center, up);
-        viewport(width/8, height/8, width*3/4, height*3/4);
-        projection(0);
-
-        ZShader zshader;
-        for (int i=0; i<model->nfaces(); i++) {
-            vector<int> f = model->face(i);
-            Vec3f screen_coord[3];
-            for(int j = 0; j < 3; j++)
-            {
-                Vec4f tmp = zshader.vertex(i,j);
-                screen_coord[j] = Vec3f(tmp[0],tmp[1],tmp[2]);
-            }
-            triangle_bary(zshader, screen_coord, shadowbuffer, frame);
-        }
-        frame.flip_vertically();
-        frame.write_tga_file("framebuffer1.tga");
-
-        Shader shader;
-        occl.clear();
-        for (int i=0; i<model->nfaces(); i++) {
-            vector<int> f = model->face(i);
-            Vec3f screen_coord[3];
-            for(int j = 0; j < 3; j++)
-            {
-                Vec4f tmp = shader.vertex(i,j);
-                screen_coord[j] = Vec3f(tmp[0],tmp[1],tmp[2]);
-            }
-            triangle_bary(shader, screen_coord, zbuffer, frame);
-        }
-
-        for (int i=0; i<1024; i++) {
-            for (int j=0; j<1024; j++) {
-                float tmp = total.get(i,j)[0];
-                total.set(i, j, TGAColor((tmp*(iter-1)+occl.get(i,j)[0])/(float)iter+.5f));
-            }
-        }
-    }
-    total.flip_vertically();
-    total.write_tga_file("occlusion1.tga");
-    occl.flip_vertically();
-    occl.write_tga_file("occl1.tga");
-
     delete [] zbuffer;
     delete model;
-    delete [] shadowbuffer;
+    return 0;
 }
 

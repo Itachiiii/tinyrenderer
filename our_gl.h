@@ -20,9 +20,9 @@ struct IShader {
     virtual bool fragment(Vec3f bar, TGAColor &color) = 0;
 };
 
-void triangle_ans(Vec4f *pts, IShader &shader, TGAImage &image, TGAImage &zbuffer);
+void triangle_ans(mat<4,3,float> &clipc, IShader &shader, TGAImage &image, float *zbuffer);
 void triangle2(Vec2i t0, Vec2i t1, Vec2i t2, TGAImage &image, TGAColor color);
-void triangle_bary(IShader& shader, Vec3f* pts, float* zbuffer, TGAImage &image);
+void triangle_bary(IShader& shader, Vec3f* pts, float* zbuffer, TGAImage &image, mat<4,3,float>& clipc);
 
 
 #endif //__OUR_GL_H__
