@@ -18,8 +18,8 @@ float* shadowbuffer = nullptr;
 float* zbuffer = nullptr;
 
 Vec3f light_dir(1,1,0);
-Vec3f   eye(1.2,-.8,3);
-Vec3f    center(0,0,0);
+Vec3f   eye(0.5,1,2);
+Vec3f    center(0,0,1);
 Vec3f        up(0,1,0);
 
 TGAImage total(1024, 1024, TGAImage::GRAYSCALE);
@@ -127,52 +127,69 @@ struct AOShader : public IShader {
     }
 };
 
+struct PhongShader : public IShader {
+    mat<2,3,float> varying_uv; // written by vertex shader, read by fragment shader
+    mat<4,3,float> varying_view_pos;
+
+    Vec4f vertex(int iface, int nthvert) {
+        varying_uv.set_col(nthvert, model->uv(iface, nthvert));
+        Vec4f gl_Vertex = embed<4>(model->vert(iface,nthvert));
+        varying_view_pos.set_col(nthvert, (ModelView * gl_Vertex));
+        gl_Vertex = Viewport * Projection * ModelView * gl_Vertex;
+        gl_Vertex = gl_Vertex / gl_Vertex[3];
+        return gl_Vertex;
+    }
+
+    bool fragment(Vec3f bar, TGAColor &color) {
+        Vec2f uv = varying_uv * bar;
+        Vec3f view_pos = proj<3>(varying_view_pos * bar);
+        Vec3f n = proj<3>(MIT * embed<4>(model->normal(uv))).normalize();
+        Vec3f l = proj<3>(ModelView * embed<4>(light_dir)).normalize(); // to the light
+        Vec3f r = n * 2 * (n * l) - l;
+        Vec3f v = (eye - view_pos).normalize();
+        float specular = pow( std::max(0.f, r * v), model->specular(uv));
+        float diffuse = std::max(0.f, l * n);
+        TGAColor c = model->diffuse(uv);
+        color = c;
+        for (int i=0; i<3; i++) color[i] = std::min<float>(5 + c[i]*(diffuse + .6*specular), 255);
+        return false;
+    }
+};
+
+
 int main(int argc, char** argv) {
     TGAImage image(width, height, TGAImage::RGB);
-    TGAImage shadowmap(shadowsize, shadowsize, TGAImage::GRAYSCALE);
 
-    model = new Model("obj/diablo3_pose.obj");
-    light_dir.normalize();
-    zbuffer = new float[width * height];
+    model = new Model("obj/floor.obj");
+    float* zbuffer = new float[width * height];
     for(int i = width * height; i--; zbuffer[i] = -std::numeric_limits<float>::max());
-
-    TGAImage frame(width, height, TGAImage::RGB);
-    lookat(eye,center,up);
+    
+    lookat(eye,center,Vec3f(0,1,0));
     viewport(width/8, height/8, width*3/4, height*3/4);
-    projection(-1.f/(eye-center).norm());
+    projection(-1.f/(eye - center).norm());
+    light_dir.normalize();
 
-    SSZShader zshader;
-    for (int i=0; i<model->nfaces(); i++) {
+    PhongShader shader;
+    MIT = ModelView.invert_transpose();
+    for(int i = 0; i < model->nfaces(); i++)
+    {
         vector<int> f = model->face(i);
+        Vec3f world_coord[3];
         Vec3f screen_coord[3];
+        //-----------------------------vertex processing-----------------------------
         for(int j = 0; j < 3; j++)
         {
-            Vec4f tmp = zshader.vertex(i,j);
+            world_coord[j] = model->vert(f[j]);
+            Vec4f tmp = shader.vertex(i,j);
             screen_coord[j] = Vec3f(tmp[0],tmp[1],tmp[2]);
         }
-        triangle_bary(zshader, screen_coord, zbuffer, frame, zshader.varying_tri);
-        //triangle_ans(zshader.varying_tri, zshader, frame, zbuffer);
+
+        //-----------------------------primitive processing-----------------------------
+        triangle_bary(shader, screen_coord, zbuffer, image, shader.varying_view_pos);
     }
 
-    for (int x=0; x<width; x++) {
-        for (int y=0; y<height; y++) {
-            if (zbuffer[x+y*width] < -1e5) continue;
-            
-            float total = 0;
-            for(float angle = 0; angle < 2 * M_PI-1e-4; angle += (M_PI / 4)){
-                total += (M_PI / 2 - max_elevation_angle(zbuffer, Vec2f(x,y), Vec2f(cos(angle), sin(angle))));
-            }
-            
-            total /= 8 * (M_PI / 2);
-            total = pow(total, 100.0f);
-            frame.set(x, y, TGAColor(total*255, total*255, total*255));
-        }
-    }
-
-    frame.flip_vertically();
-    frame.write_tga_file("framebuffer1.tga");
-    
-    delete [] zbuffer;
+    image.flip_vertically(); 
+    image.write_tga_file("output.tga");
     delete model;
     return 0;
 }

@@ -119,10 +119,14 @@ void triangle_bary(IShader& shader, Vec3f* pts, float* zbuffer, TGAImage &image,
         for(int y = bboxmin.y; y <= bboxmax.y; y++)
         {
             Vec3f bc = barycentric(pts, Vec3f(x, y, 1));
-            float z = 0;
-            z = 1.f / (bc.x / worldz[0] + bc.y / worldz[1] + bc.z / worldz[2]);
+            Vec3f bc_revised = bc;
+            for(int i = 0; i < 3; i++)
+                bc_revised[i] /= worldz[i];
+            float z = 1.f / (bc_revised[0] + bc_revised[1] + bc_revised[2]);
+            for(int i = 0; i < 3; i++)
+                bc_revised[i] *= z;
             if(bc.x < 0 || bc.y < 0 || bc.z < 0 || z < zbuffer[x + y * image.get_width()])continue;
-            bool discard = shader.fragment(bc,color);
+            bool discard = shader.fragment(bc_revised,color);
             if(!discard){
                 zbuffer[x + y * image.get_width()] = z;
                 image.set(x, y, color);
